@@ -3,12 +3,13 @@ import settings
 import logging
 import urllib
 import time
+import math
 import functools
 from collections import deque
 from MemcachePool import mc
 
-
 MAX_PAYLOAD_BYTES = 1024
+MAX_BACKOFF_SEC = 64
 
 class c2dm:
     def __init__(self, loop=None):
@@ -18,6 +19,9 @@ class c2dm:
         self._token = None
         self.write_queue = deque()
         self.started = time.time()
+        self.concurrent = 0
+        self.max_concurrent = 5
+        self.error_level = 0
         self.stats = { 
             'notifications':0,
             'notifications_ok':0,
@@ -25,12 +29,23 @@ class c2dm:
             'quota_exceeded':0,
             'client_login_failed':0,
             'unavailable':0,
-        }   
+        }
+        self.sweeper = ioloop.PeriodicCallback(self.run_sweeper, 1000*1, self.ioloop)
+        self.sweeper.start()
         self.get_token()
+
+    def run_sweeper(self):
+        if not self.error_level:
+            while len(self.write_queue) and self.concurrent != self.max_concurrent:
+                self.send(self.write_queue.popleft())
+        else:
+            self.error_level -= 1
 
     def get_stats(self):
         stats = self.stats.copy()
         stats['queue_len'] = len(self.write_queue)
+        stats['error_level'] = self.error_level
+        stats['concurrent'] = self.concurrent
         stats['uptime'] = time.time() - self.started
         return stats
 
@@ -66,59 +81,51 @@ class c2dm:
         data = urllib.urlencode(data, doseq=1)
         if len(data) > MAX_PAYLOAD_BYTES:
             raise ValueError, u"max payload(%d) exceeded: %d" % (MAX_PAYLOAD_BYTES, len(data))
-        self.write_queue.append(dict(registration_id=registration_id, payload=data))
-        self.ioloop.add_callback(self.push_one)
+        self.send(dict(registration_id=registration_id, payload=data))
         return True
 
     def send(self, data):
-        self.stats['notifications'] += 1
-        headers = {'Authorization': 'GoogleLogin auth=' + self.get_token()}
-        self.http_client.fetch(settings.get('c2dm_url'),
-            functools.partial(self._finish_send, data=data),
-            follow_redirects=False, method="POST", body=data.get('payload'),
-            validate_cert=False, headers=headers, connect_timeout=10, request_timeout=10)
+        if not data: return
+        if self.error_level:
+            self.write_queue.append(data)
+        else:
+            self.stats['concurrent'] += 1
+            self.stats['notifications'] += 1
+            headers = {'Authorization': 'GoogleLogin auth=' + self.get_token()}
+            self.http_client.fetch(settings.get('c2dm_url'),
+                functools.partial(self._finish_send, data=data),
+                follow_redirects=False, method="POST", body=data.get('payload'),
+                validate_cert=False, headers=headers, connect_timeout=10, request_timeout=10)
 
     def _finish_send(self, response, data):
-        if response.error:
-            logging.exception("send failed", response.error)
-        else:
-            if response.code == 200:
-                body = response.buffer.getvalue()
-                retvals = {}
-                items = response.body.split('\n')
-                for item in items: 
-                    pair = item.split('=')
-                    if len(pair) == 2:
-                        retvals[pair[0].strip()] = pair[1].strip()
-                if 'id' in retvals:
-                    self.stats['notifications_ok'] += 1
-                    logging.info("sent(%s): %s", retvals.get('id'), data.get('payload'))
-                elif 'Error' in retvals:
-                    err = retvals.get('Error')
-                    logging.warning("%s: %s", err, data.get('payload'))
-                    if err == 'InvalidRegistration' or err == 'NotRegistered':
-                        mc.set(data.get('registration_id'), int(time.time()))
-                        self.stats['invalid_registration'] += 1
-                    elif err == 'QuotaExceeded':
-                        self.stats['quota_exceeded'] += 1
-                        self.write_queue.appendleft(data)
-            elif response.code == 401:
+        self.stats['concurrent'] -= 1
+        if response.error or response.code != 200:
+            self.error_level += (1 + self.error_level/2)
+            if response.code == 401:
                 self.stats['client_login_failed'] += 1
                 self.clear_token()
-                self.write_queue.appendleft(data)
             elif response.code == 503:
                 self.stats['unavailable'] += 1
-                self.write_queue.appendleft(data)
-
-    def push_one(self):
-        if len(self.write_queue):
-            data = self.write_queue.popleft()
-            try:
-                self.send(data)
-            except:
-                self.write_queue.appendleft(data)
-                return False
-            return True
-        return False
-
+            self.write_queue.appendleft(data)
+            logging.exception("send failed", response.error)
+        else:
+            body = response.buffer.getvalue()
+            retvals = {}
+            items = response.body.split('\n')
+            for item in items: 
+                pair = item.split('=')
+                if len(pair) == 2:
+                    retvals[pair[0].strip()] = pair[1].strip()
+            if 'id' in retvals:
+                self.stats['notifications_ok'] += 1
+                logging.info("sent(%s): %s", retvals.get('id'), data.get('payload'))
+            elif 'Error' in retvals:
+                err = retvals.get('Error')
+                logging.warning("%s: %s", err, data.get('payload'))
+                if err == 'InvalidRegistration' or err == 'NotRegistered':
+                    mc.set(data.get('registration_id'), int(time.time()))
+                    self.stats['invalid_registration'] += 1
+                elif err == 'QuotaExceeded':
+                    self.stats['quota_exceeded'] += 1
+                    self.write_queue.appendleft(data)
 
