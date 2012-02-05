@@ -3,6 +3,7 @@ import tornado.options
 import tornado.web
 from tornado.escape import utf8
 import settings
+from settings import options, env
 import logging
 import simplejson as json
 from lib.MemcachePool import mc
@@ -63,7 +64,15 @@ class StatsHandler(BaseHandler):
 
 if __name__ == "__main__":
     tornado.options.define("port", default=8888, help="Listen on port", type=int)
+    tornado.options.define("Email", default=None, help="Google client email", type=str)
+    tornado.options.define("Passwd", default=None, help="Google client password", type=str)
+    tornado.options.define("source", default=None, help="C2DM source", type=str)
     tornado.options.parse_command_line()
+    ''' allow sensitive data to be passed on cmd line ( so everyone can see it w ps ) '''
+    for key in ['Email', 'Passwd', 'source']:
+        if key in tornado.options.options and tornado.options.options[key].value():
+            options.get(env())['login'][key] = tornado.options.options[key].value()
+
     logging.getLogger().setLevel(settings.get('logging_level'))
 
     # the global c2dm
