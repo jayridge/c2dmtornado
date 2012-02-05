@@ -9,7 +9,6 @@ from collections import deque
 from MemcachePool import mc
 
 MAX_PAYLOAD_BYTES = 1024
-MAX_BACKOFF_SEC = 64
 
 class c2dm:
     def __init__(self, loop=None):
@@ -89,7 +88,7 @@ class c2dm:
         if self.error_level:
             self.write_queue.append(data)
         else:
-            self.stats['concurrent'] += 1
+            self.concurrent += 1
             self.stats['notifications'] += 1
             headers = {'Authorization': 'GoogleLogin auth=' + self.get_token()}
             self.http_client.fetch(settings.get('c2dm_url'),
@@ -98,7 +97,7 @@ class c2dm:
                 validate_cert=False, headers=headers, connect_timeout=10, request_timeout=10)
 
     def _finish_send(self, response, data):
-        self.stats['concurrent'] -= 1
+        self.concurrent -= 1
         if response.error or response.code != 200:
             self.error_level += (1 + self.error_level/2)
             if response.code == 401:

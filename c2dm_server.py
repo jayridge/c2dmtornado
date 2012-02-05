@@ -27,6 +27,7 @@ class BaseHandler(tornado.web.RequestHandler):
         self.set_header("Content-Type", "application/json; charset=utf-8")
         self.finish(json.dumps(dict(data=data, status_code=status_code, status_txt=status_txt)) + "\n")
 
+
 class PushHandler(BaseHandler):
     def get(self):
         registration_id = utf8(self.get_argument("registration_id"))
@@ -48,6 +49,7 @@ class PushHandler(BaseHandler):
         except Exception as e:
             self.error(status_code=500, status_txt=status, data=str(e))
 
+
 class FlushHandler(BaseHandler):
     def get(self):
         registration_id = utf8(self.get_argument("registration_id"))
@@ -61,6 +63,7 @@ class FlushHandler(BaseHandler):
 class StatsHandler(BaseHandler):
     def get(self):
         self.api_response(_c2dm.get_stats())
+
 
 if __name__ == "__main__":
     tornado.options.define("port", default=8888, help="Listen on port", type=int)
@@ -82,6 +85,6 @@ if __name__ == "__main__":
         (r"/push", PushHandler),
         (r"/stats", StatsHandler),
         (r"/flush", FlushHandler),
-    ])
+    ], debug=(env() == 'dev'))
     application.listen(tornado.options.options.port)
     tornado.ioloop.IOLoop.instance().start()
