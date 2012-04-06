@@ -99,7 +99,7 @@ class c2dm:
     def _finish_send(self, response, data):
         self.concurrent -= 1
         if response.error or response.code != 200:
-            self.error_level += (1 + self.error_level/2)
+            self.error_level = min(settings.get('max_backoff') or 15, (self.error_level + 1 + self.error_level/2))
             if response.code == 401:
                 self.stats['client_login_failed'] += 1
                 self.clear_token()
