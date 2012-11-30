@@ -29,7 +29,7 @@ class mc(object):
                     # number of seconds before retrying connection to failed server
                     '_retry_timeout': 60, 
                     # don't delete a host from pool (avoid remapping of keys on server failure)
-                    '_auto_eject_hosts': False
+                    #'_auto_eject_hosts': False
                 })
         return self._conn
     
