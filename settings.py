@@ -6,6 +6,7 @@ tornado.options.define("environment", default="dev", help="environment")
 options = {
     'dev' : {
         'logging_level' : logging.DEBUG,
+        'max_concurrent' : 256,
         'memcached' : ['127.0.0.1:11211'],
         'collapse_key' : 'Path',
         'c2dm_url' : 'https://android.apis.google.com/c2dm/send',
@@ -20,6 +21,7 @@ options = {
     }, 
     'prod' : {
         'logging_level' : logging.DEBUG,
+        'max_concurrent' : 256,
         'memcached' : ['127.0.0.1:11211'],
         'collapse_key' : 'Path',
         'c2dm_url' : 'https://android.apis.google.com/c2dm/send',

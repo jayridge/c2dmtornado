@@ -67,19 +67,20 @@ class StatsHandler(BaseHandler):
 
 if __name__ == "__main__":
     tornado.options.define("port", default=8888, help="Listen on port", type=int)
+    tornado.options.define("max_concurrent", default=64, help="max concurrent http requests", type=int)
     tornado.options.define("Email", default=None, help="Google client email", type=str)
     tornado.options.define("Passwd", default=None, help="Google client password", type=str)
     tornado.options.define("source", default=None, help="C2DM source", type=str)
     tornado.options.parse_command_line()
     ''' allow sensitive data to be passed on cmd line ( so everyone can see it w ps ) '''
-    for key in ['Email', 'Passwd', 'source']:
+    for key in ['Email', 'Passwd', 'source', 'max_concurrent']:
         if key in tornado.options.options and tornado.options.options[key].value():
             options.get(env())['login'][key] = tornado.options.options[key].value()
 
     logging.getLogger().setLevel(settings.get('logging_level'))
 
     # the global c2dm
-    _c2dm = c2dm()
+    _c2dm = c2dm(max_concurrent=settings.get('max_concurrent'))
 
     application = tornado.web.Application([
         (r"/push", PushHandler),

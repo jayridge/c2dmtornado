@@ -11,15 +11,15 @@ from MemcachePool import mc
 MAX_PAYLOAD_BYTES = 1024
 
 class c2dm:
-    def __init__(self, loop=None):
+    def __init__(self, loop=None, max_clients=256, max_concurrent=64):
         self.ioloop = loop or ioloop.IOLoop.instance()
-        self.http_client = httpclient.AsyncHTTPClient(io_loop=self.ioloop)
+        self.http_client = httpclient.AsyncHTTPClient(io_loop=self.ioloop, max_clients=max_clients)
         self.http_client.configure("tornado.curl_httpclient.CurlAsyncHTTPClient")
         self._token = None
         self.write_queue = deque()
         self.started = time.time()
         self.concurrent = 0
-        self.max_concurrent = 5
+        self.max_concurrent = max_concurrent
         self.error_level = 0
         self.stats = { 
             'notifications':0,
@@ -92,11 +92,12 @@ class c2dm:
             self.stats['notifications'] += 1
             headers = {'Authorization': 'GoogleLogin auth=' + self.get_token()}
             self.http_client.fetch(settings.get('c2dm_url'),
-                functools.partial(self._finish_send, data=data),
+                functools.partial(self._finish_send, data=data, started=time.time()),
                 follow_redirects=False, method="POST", body=data.get('payload'),
                 validate_cert=False, headers=headers, connect_timeout=10, request_timeout=10)
 
-    def _finish_send(self, response, data):
+    def _finish_send(self, response, data, started):
+        elapsed = time.time() - started
         self.concurrent -= 1
         if response.error or response.code != 200:
             self.error_level = min(settings.get('max_backoff') or 15, (self.error_level + 1 + self.error_level/2))
@@ -117,7 +118,7 @@ class c2dm:
                     retvals[pair[0].strip()] = pair[1].strip()
             if 'id' in retvals:
                 self.stats['notifications_ok'] += 1
-                logging.info("sent(%s): %s", retvals.get('id'), data.get('payload'))
+                logging.info("sent(%s): %s %f", retvals.get('id'), data.get('payload'), elapsed)
             elif 'Error' in retvals:
                 err = retvals.get('Error')
                 logging.warning("%s: %s", err, data.get('payload'))
